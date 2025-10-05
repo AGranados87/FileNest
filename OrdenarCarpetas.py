@@ -1,4 +1,4 @@
-# organizar_gui.py — GUI con popup de bienvenida y tamaños ligeramente mayores
+# GUI con popup de bienvenida
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, font as tkfont
 from pathlib import Path
@@ -8,7 +8,7 @@ import threading
 import json
 import os
 
-# ===== Config persistente (APPDATA) =====
+# Config persistente (APPDATA)
 APP_DIR = Path(os.getenv('APPDATA', Path.home())) / "OrganizadorArchivos"
 CONFIG_PATH = APP_DIR / "config.json"
 
@@ -27,7 +27,7 @@ def save_config(cfg: dict):
     CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-# ===== Config: carpetas y extensiones =====
+# Config: carpetas y extensiones
 DESTINOS = {
     "Imágenes": {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg", ".heic"},
     "PDFs": {".pdf"},
@@ -40,7 +40,7 @@ CARPETA_OTROS = "Otros"
 EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in exts}
 
 
-# ===== Utilidades =====
+# Utilidades
 def ruta_unica(dest: Path) -> Path:
     if not dest.exists():
         return dest
@@ -100,7 +100,7 @@ def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
 
     return movidos, errores
 
-# ===== GUI =====
+# GUI
 class OrganizadorGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -159,7 +159,7 @@ class OrganizadorGUI:
         ttk.Button(frm_btns, text="Acerca de", command=self._acerca_de).pack(side="right", padx=(0, 8))
         ttk.Button(frm_btns, text="Ayuda", command=self._show_welcome_modal).pack(side="right", padx=(0, 8))
 
-    # ---- helpers UI ----
+    # helpers UI
     def _browse(self):
         d = filedialog.askdirectory(initialdir=self.path_var.get() or None)
         if d:
@@ -222,7 +222,7 @@ class OrganizadorGUI:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    # ===== helpers de centrado =====
+    # helpers de centrado
     def _center_child(self, win: tk.Toplevel):
         try:
             win.update_idletasks()
@@ -236,7 +236,7 @@ class OrganizadorGUI:
             # Si algo falla, no rompemos el flujo; el modal seguirá mostrándose.
             pass
 
-    # ===== Bienvenida / Ayuda =====
+    # Bienvenida / Ayuda
     def _maybe_show_welcome(self):
         # Muéstralo solo si no se ha marcado "no volver a mostrar"
         if not self.config.get("suppress_welcome_v2", False):
