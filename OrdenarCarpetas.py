@@ -1,9 +1,31 @@
+# organizar_gui.py — GUI con popup de bienvenida y tamaños ligeramente mayores
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, font as tkfont
 from pathlib import Path
 import shutil
 from collections import defaultdict
 import threading
+import json
+import os
+
+# ===== Config persistente (APPDATA) =====
+APP_DIR = Path(os.getenv('APPDATA', Path.home())) / "OrganizadorArchivos"
+CONFIG_PATH = APP_DIR / "config.json"
+
+
+def load_config():
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_config(cfg: dict):
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 # ===== Config: carpetas y extensiones =====
 DESTINOS = {
@@ -17,6 +39,7 @@ DESTINOS = {
 CARPETA_OTROS = "Otros"
 EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in exts}
 
+
 # ===== Utilidades =====
 def ruta_unica(dest: Path) -> Path:
     """Si dest existe, devuelve 'nombre (n).ext' libre."""
@@ -29,6 +52,7 @@ def ruta_unica(dest: Path) -> Path:
             return candidato
         i += 1
 
+
 def listar_archivos(base: Path, recursivo: bool):
     it = base.rglob("*") if recursivo else base.iterdir()
     destinos = set(DESTINOS.keys()) | {CARPETA_OTROS}
@@ -40,6 +64,7 @@ def listar_archivos(base: Path, recursivo: bool):
         if p.parent.name in destinos:  # ya está clasificado
             continue
         yield p
+
 
 def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
     """Core de organización. on_log(str), on_progress(curr, total)"""
@@ -77,12 +102,15 @@ def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
 
     return movidos, errores
 
+
 # ===== GUI =====
 class OrganizadorGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Organizador de archivos por tipo")
-        self.root.minsize(720, 480)
+        # Un poco más grande por defecto
+        self.root.minsize(900, 560)
+        self.root.geometry("1000x650")
 
         self.path_var = tk.StringVar(value=r"C:/Users/agran/OneDrive/Escritorio/auto_python")
         self.recursive_var = tk.BooleanVar(value=False)
@@ -90,43 +118,48 @@ class OrganizadorGUI:
 
         self._build_ui()
 
+        # Config persistente y bienvenida
+        self.config = load_config()
+        self._maybe_show_welcome()
+
     def _build_ui(self):
-        frm_top = ttk.Frame(self.root, padding=12)
+        frm_top = ttk.Frame(self.root, padding=14)
         frm_top.pack(fill="x")
 
         ttk.Label(frm_top, text="Carpeta:").pack(side="left")
         self.entry_path = ttk.Entry(frm_top, textvariable=self.path_var)
-        self.entry_path.pack(side="left", fill="x", expand=True, padx=6)
+        self.entry_path.pack(side="left", fill="x", expand=True, padx=8)
         ttk.Button(frm_top, text="Buscar…", command=self._browse).pack(side="left")
 
-        frm_opts = ttk.Frame(self.root, padding=(12, 0))
+        frm_opts = ttk.Frame(self.root, padding=(14, 0))
         frm_opts.pack(fill="x")
         ttk.Checkbutton(frm_opts, text="Recursivo (incluir subcarpetas)", variable=self.recursive_var).pack(side="left")
-        ttk.Checkbutton(frm_opts, text="Simular (no mover)", variable=self.dry_run_var).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(frm_opts, text="Simular (no mover)", variable=self.dry_run_var).pack(side="left", padx=(14, 0))
 
         # Barra de progreso
-        frm_prog = ttk.Frame(self.root, padding=(12, 8))
+        frm_prog = ttk.Frame(self.root, padding=(14, 10))
         frm_prog.pack(fill="x")
         self.progress = ttk.Progressbar(frm_prog, mode="determinate")
         self.progress.pack(fill="x", expand=True)
         self.lbl_status = ttk.Label(frm_prog, text="Listo.")
-        self.lbl_status.pack(anchor="w", pady=(4, 0))
+        self.lbl_status.pack(anchor="w", pady=(6, 0))
 
         # Log
-        frm_log = ttk.Frame(self.root, padding=12)
+        frm_log = ttk.Frame(self.root, padding=14)
         frm_log.pack(fill="both", expand=True)
-        self.txt_log = tk.Text(frm_log, height=12, wrap="none")
-        yscroll = ttk.Scrollbar(frm_log, orient="vertical", command=self.txt_log.yview)
+        self.txt_log = tk.Text(frm_log, height=16, wrap="none")
+        yscroll = tk.Scrollbar(frm_log, orient="vertical", command=self.txt_log.yview, width=18)
         self.txt_log.configure(yscrollcommand=yscroll.set)
         self.txt_log.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
 
         # Botones
-        frm_btns = ttk.Frame(self.root, padding=12)
+        frm_btns = ttk.Frame(self.root, padding=14)
         frm_btns.pack(fill="x")
         self.btn_run = ttk.Button(frm_btns, text="Organizar", command=self._run)
         self.btn_run.pack(side="left")
         ttk.Button(frm_btns, text="Salir", command=self.root.quit).pack(side="right")
+        ttk.Button(frm_btns, text="Acerca de", command=self._acerca_de).pack(side="right", padx=(0, 8))
 
     # ---- helpers UI ----
     def _browse(self):
@@ -191,13 +224,88 @@ class OrganizadorGUI:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    # ===== Bienvenida / Ayuda =====
+    def _maybe_show_welcome(self):
+        # Muéstralo solo si no se ha marcado "no volver a mostrar"
+        if not self.config.get("welcome_seen", False):
+            self._show_welcome_modal()
+
+    def _show_welcome_modal(self):
+        win = tk.Toplevel(self.root)
+        win.title("Cómo funciona")
+        win.transient(self.root)  # ventana hija
+        win.grab_set()  # modal
+        win.resizable(False, False)
+
+        frm = ttk.Frame(win, padding=18)
+        frm.pack(fill="both", expand=True)
+
+        texto = (
+            "¿Qué hace esta app?\n"
+            "• Crea carpetas: Imágenes, PDFs, Vídeos, Documentos Word, Excel, Texto y Otros.\n"
+            "• Mueve tus archivos a la carpeta según su extensión.\n"
+            "• Evita tocar lo que ya esté dentro de esas carpetas.\n"
+            "• Si el nombre existe, renombra a (1), (2), … para evitar colisiones.\n\n"
+            "Opciones:\n"
+            "• Recursivo: incluye subcarpetas.\n"
+            "• Simular: no mueve nada, solo muestra el plan.\n\n"
+            "Consejo: prueba primero con Simular (por si acaso 😉)."
+        )
+
+        ttk.Label(frm, text=texto, justify="left", wraplength=640).pack(anchor="w")
+
+        self.no_mostrar_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frm,
+            text="No volver a mostrar al iniciar",
+            variable=self.no_mostrar_var
+        ).pack(anchor="w", pady=(10, 0))
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(12, 0))
+        ttk.Button(btns, text="Entendido", command=lambda: self._cerrar_bienvenida(win)).pack(side="right")
+
+    def _cerrar_bienvenida(self, win):
+        if self.no_mostrar_var.get():
+            self.config["welcome_seen"] = True
+            save_config(self.config)
+        win.destroy()
+
+    def _acerca_de(self):
+        messagebox.showinfo("Acerca de", "Organizador de archivos simple, desarrollado por Álvaro Granados Ruiz."
+                                         "Por principios, este software nunca incluirá anuncios ni cobrará por su uso."
+                                         "Si quieres apoyarme, puedes comprarme un kofi: ko-fi.com/alvarogr87")
+
 if __name__ == "__main__":
     root = tk.Tk()
-    # Ajuste visual leve (Windows 10/11)
     try:
         from ctypes import windll
+
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+
+    try:
+        root.tk.call('tk', 'scaling', 1.25)
+    except Exception:
+        pass
+
+    default_font = tkfont.nametofont("TkDefaultFont");
+    default_font.configure(size=11)
+    text_font = tkfont.nametofont("TkTextFont");
+    text_font.configure(size=11)
+    fixed_font = tkfont.nametofont("TkFixedFont");
+    fixed_font.configure(size=11)
+    menu_font = tkfont.nametofont("TkMenuFont");
+    menu_font.configure(size=11)
+    heading_font = tkfont.nametofont("TkHeadingFont");
+    heading_font.configure(size=12, weight="bold")
+
+    style = ttk.Style(root)
+    style.configure("TLabel", padding=(0, 6))
+    style.configure("TButton", padding=(12, 8))
+    style.configure("TCheckbutton", padding=(10, 6))
+    style.configure("Horizontal.TProgressbar", thickness=16)
+
     OrganizadorGUI(root)
     root.mainloop()
