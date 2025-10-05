@@ -39,7 +39,6 @@ DESTINOS = {
 CARPETA_OTROS = "Otros"
 EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in exts}
 
-
 # Utilidades
 def ruta_unica(dest: Path) -> Path:
     if not dest.exists():
