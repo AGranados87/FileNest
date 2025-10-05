@@ -7,11 +7,11 @@ from collections import defaultdict
 import threading
 import json
 import os
+from datetime import datetime
 
 # Config persistente (APPDATA)
 APP_DIR = Path(os.getenv('APPDATA', Path.home())) / "OrganizadorArchivos"
 CONFIG_PATH = APP_DIR / "config.json"
-
 
 def load_config():
     if CONFIG_PATH.exists():
@@ -21,11 +21,9 @@ def load_config():
             return {}
     return {}
 
-
 def save_config(cfg: dict):
     APP_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-
 
 # Config: carpetas y extensiones
 DESTINOS = {
@@ -39,6 +37,12 @@ DESTINOS = {
 CARPETA_OTROS = "Otros"
 EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in exts}
 
+# Subcarpetas por fecha para ciertas categorías (formato strftime)
+DATE_SUBFOLDERS = {
+    "Excel": "%Y/%m",
+    "Texto": "%Y/%m",
+}
+
 # Utilidades
 def ruta_unica(dest: Path) -> Path:
     if not dest.exists():
@@ -50,26 +54,49 @@ def ruta_unica(dest: Path) -> Path:
             return candidato
         i += 1
 
+def _esta_dentro_de_destino(base: Path, p: Path) -> bool:
+
+    try:
+        rel = p.relative_to(base)
+    except Exception:
+        return False
+    if not rel.parts:
+        return False
+    primer_nivel = rel.parts[0]
+    destinos = set(DESTINOS.keys()) | {CARPETA_OTROS}
+    return primer_nivel in destinos
 
 def listar_archivos(base: Path, recursivo: bool):
     it = base.rglob("*") if recursivo else base.iterdir()
-    destinos = set(DESTINOS.keys()) | {CARPETA_OTROS}
     for p in it:
         if not p.is_file():
             continue
+        # Ignorar temporales de Office
         if p.name.startswith("~$"):
             continue
-        if p.parent.name in destinos:
+        if _esta_dentro_de_destino(base, p):
             continue
         yield p
 
+def _directorio_destino(base: Path, p: Path, carpeta: str) -> Path:
+    """
+    Devuelve el directorio final destino para el archivo p,
+    aplicando subcarpetas de fecha si corresponden.
+    """
+    dest = base / carpeta
+    if carpeta in DATE_SUBFOLDERS:
+        # Usamos la fecha de modificación del archivo
+        dt = datetime.fromtimestamp(p.stat().st_mtime)
+        sub = dt.strftime(DATE_SUBFOLDERS[carpeta])
+        dest = dest / Path(*sub.split("/"))
+    return dest
 
 def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
     ruta = ruta.expanduser().resolve()
     if not ruta.is_dir():
         raise ValueError(f"Ruta no válida: {ruta}")
 
-    # Crear carpetas destino
+    # Crear carpetas destino top-level
     for carpeta in list(DESTINOS.keys()) + [CARPETA_OTROS]:
         (ruta / carpeta).mkdir(exist_ok=True)
 
@@ -83,11 +110,20 @@ def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
     for i, p in enumerate(archivos, start=1):
         ext = p.suffix.casefold()
         carpeta = EXT_A_CARPETA.get(ext, CARPETA_OTROS)
-        destino_dir = ruta / carpeta
+
+        # Directorio final (incluye subcarpetas por fecha si procede)
+        destino_dir = _directorio_destino(ruta, p, carpeta)
+        destino_dir.mkdir(parents=True, exist_ok=True)
+
         destino = ruta_unica(destino_dir / p.name)
 
         try:
-            on_log(f"{p.name}  →  {carpeta}/")
+            subruta_rel = destino_dir.relative_to(ruta).as_posix() + "/"
+        except Exception:
+            subruta_rel = f"{carpeta}/"
+
+        try:
+            on_log(f"{p.name}  →  {subruta_rel}")
             if not dry_run:
                 shutil.move(str(p), str(destino))
             movidos[carpeta] += 1
@@ -104,7 +140,6 @@ class OrganizadorGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Organizador de archivos por tipo")
-        # Un poco más grande por defecto
         self.root.minsize(900, 560)
         self.root.geometry("1000x650")
 
@@ -232,7 +267,6 @@ class OrganizadorGUI:
             y = self.root.winfo_rooty() + max(0, (ph - wh) // 2)
             win.geometry(f"+{x}+{y}")
         except Exception:
-            # Si algo falla, no rompemos el flujo; el modal seguirá mostrándose.
             pass
 
     # Bienvenida / Ayuda
@@ -256,7 +290,8 @@ class OrganizadorGUI:
             "• Crea carpetas: Imágenes, PDFs, Vídeos, Documentos Word, Excel, Texto y Otros.\n"
             "• Mueve tus archivos a la carpeta según su extensión.\n"
             "• Evita tocar lo que ya esté dentro de esas carpetas.\n"
-            "• Si el nombre existe, renombra a (1), (2), … para evitar colisiones.\n\n"
+            "• Si el nombre existe, renombra a (1), (2), … para evitar colisiones.\n"
+            "• En 'Excel' y 'Texto' además organiza en subcarpetas por fecha (AAAA/MM) según la fecha de modificación.\n\n"
             "Opciones:\n"
             "• Recursivo: incluye subcarpetas.\n"
             "• Simular: no mueve nada, solo muestra el plan.\n\n"
@@ -334,26 +369,24 @@ if __name__ == "__main__":
 
     try:
         from ctypes import windll
-
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
-
 
     try:
         root.tk.call('tk', 'scaling', 1.25)
     except Exception:
         pass
 
-    default_font = tkfont.nametofont("TkDefaultFont");
+    default_font = tkfont.nametofont("TkDefaultFont")
     default_font.configure(size=11)
-    text_font = tkfont.nametofont("TkTextFont");
+    text_font = tkfont.nametofont("TkTextFont")
     text_font.configure(size=11)
-    fixed_font = tkfont.nametofont("TkFixedFont");
+    fixed_font = tkfont.nametofont("TkFixedFont")
     fixed_font.configure(size=11)
-    menu_font = tkfont.nametofont("TkMenuFont");
+    menu_font = tkfont.nametofont("TkMenuFont")
     menu_font.configure(size=11)
-    heading_font = tkfont.nametofont("TkHeadingFont");
+    heading_font = tkfont.nametofont("TkHeadingFont")
     heading_font.configure(size=12, weight="bold")
 
     style = ttk.Style(root)
