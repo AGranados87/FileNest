@@ -42,7 +42,6 @@ EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in e
 
 # ===== Utilidades =====
 def ruta_unica(dest: Path) -> Path:
-    """Si dest existe, devuelve 'nombre (n).ext' libre."""
     if not dest.exists():
         return dest
     i = 1
@@ -59,15 +58,14 @@ def listar_archivos(base: Path, recursivo: bool):
     for p in it:
         if not p.is_file():
             continue
-        if p.name.startswith("~$"):  # temporales de Office
+        if p.name.startswith("~$"):
             continue
-        if p.parent.name in destinos:  # ya está clasificado
+        if p.parent.name in destinos:
             continue
         yield p
 
 
 def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
-    """Core de organización. on_log(str), on_progress(curr, total)"""
     ruta = ruta.expanduser().resolve()
     if not ruta.is_dir():
         raise ValueError(f"Ruta no válida: {ruta}")
@@ -101,7 +99,6 @@ def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
         on_progress(i, total)
 
     return movidos, errores
-
 
 # ===== GUI =====
 class OrganizadorGUI:
@@ -160,6 +157,7 @@ class OrganizadorGUI:
         self.btn_run.pack(side="left")
         ttk.Button(frm_btns, text="Salir", command=self.root.quit).pack(side="right")
         ttk.Button(frm_btns, text="Acerca de", command=self._acerca_de).pack(side="right", padx=(0, 8))
+        ttk.Button(frm_btns, text="Ayuda", command=self._show_welcome_modal).pack(side="right", padx=(0, 8))
 
     # ---- helpers UI ----
     def _browse(self):
@@ -224,16 +222,30 @@ class OrganizadorGUI:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    # ===== helpers de centrado =====
+    def _center_child(self, win: tk.Toplevel):
+        try:
+            win.update_idletasks()
+            self.root.update_idletasks()
+            pw, ph = self.root.winfo_width(), self.root.winfo_height()
+            wx, wh = win.winfo_width(), win.winfo_height()
+            x = self.root.winfo_rootx() + max(0, (pw - wx) // 2)
+            y = self.root.winfo_rooty() + max(0, (ph - wh) // 2)
+            win.geometry(f"+{x}+{y}")
+        except Exception:
+            # Si algo falla, no rompemos el flujo; el modal seguirá mostrándose.
+            pass
+
     # ===== Bienvenida / Ayuda =====
     def _maybe_show_welcome(self):
         # Muéstralo solo si no se ha marcado "no volver a mostrar"
-        if not self.config.get("welcome_seen", False):
+        if not self.config.get("suppress_welcome_v2", False):
             self._show_welcome_modal()
 
     def _show_welcome_modal(self):
         win = tk.Toplevel(self.root)
         win.title("Cómo funciona")
-        win.transient(self.root)  # ventana hija
+        win.transient(self.root)
         win.grab_set()  # modal
         win.resizable(False, False)
 
@@ -265,25 +277,69 @@ class OrganizadorGUI:
         btns.pack(fill="x", pady=(12, 0))
         ttk.Button(btns, text="Entendido", command=lambda: self._cerrar_bienvenida(win)).pack(side="right")
 
+        self._center_child(win)
+        self.root.after(0, lambda: self._center_child(win))
+
     def _cerrar_bienvenida(self, win):
         if self.no_mostrar_var.get():
-            self.config["welcome_seen"] = True
+            self.config["suppress_welcome_v2"] = True
             save_config(self.config)
         win.destroy()
 
     def _acerca_de(self):
-        messagebox.showinfo("Acerca de", "Organizador de archivos simple, desarrollado por Álvaro Granados Ruiz."
-                                         "Por principios, este software nunca incluirá anuncios ni cobrará por su uso."
-                                         "Si quieres apoyarme, puedes comprarme un kofi: ko-fi.com/alvarogr87")
+        import tkinter as tk
+        from tkinter import ttk
+        import webbrowser
+
+        url = "https://ko-fi.com/alvarogr87"
+
+        win = tk.Toplevel(self.root)
+        win.title("Acerca de")
+        win.transient(self.root)
+        win.grab_set()  # modal
+        win.resizable(False, False)
+
+        frm = ttk.Frame(win, padding=18)
+        frm.pack(fill="both", expand=True)
+
+        ttk.Label(frm, text="Organizador de archivos — versión básica",
+                  font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        ttk.Label(frm, text="Desarrollado por Álvaro Granados Ruiz.").pack(anchor="w", pady=(4, 0))
+        ttk.Label(frm, text="Sin anuncios. No se venderá. Solo utilidad y cariño 😉",
+                  wraplength=520, justify="left").pack(anchor="w", pady=(0, 8))
+
+        ttk.Separator(frm).pack(fill="x", pady=8)
+
+        ttk.Label(frm, text="¿Te ha ahorrado tiempo? Puedes invitarme a un café:").pack(anchor="w")
+
+        link = ttk.Label(frm, text=url, foreground="blue", cursor="hand2")
+        link.pack(anchor="w", pady=(2, 8))
+        link.bind("<Button-1>", lambda e: webbrowser.open(url))
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x")
+        ttk.Button(btns, text="☕ Invitar en Ko-fi", command=lambda: webbrowser.open(url)).pack(side="right")
+        ttk.Button(btns, text="Cerrar", command=win.destroy).pack(side="right", padx=(0, 8))
+
+        try:
+            self._center_child(win)
+            self.root.after(0, lambda: self._center_child(win))
+        except Exception:
+            win.update_idletasks()
+            x = self.root.winfo_rootx() + (self.root.winfo_width() - win.winfo_width()) // 2
+            y = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 2
+            win.geometry(f"+{x}+{y}")
 
 if __name__ == "__main__":
     root = tk.Tk()
+
     try:
         from ctypes import windll
 
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+
 
     try:
         root.tk.call('tk', 'scaling', 1.25)
