@@ -20,13 +20,13 @@ for archivo in os.listdir(ruta):
     if archivo.endswith(".pdf"):
         shutil.move(os.path.join(ruta, archivo), os.path.join(ruta, "PDFs", archivo))
 
-    elif archivo.endswith(".docx"):
+    elif archivo.endswith(".docx") or archivo.endswith(".docx") or archivo.endswith(".odt"):
         shutil.move(os.join(ruta, archivo), os.path.join(ruta, "Documentos Word", archivo))
 
     elif archivo.endswith(".txt"):
         shutil.move(os.join(ruta, archivo), os.path.join(ruta, "Texto", archivo))
 
-    elif archivo.endswith(".xls"):
+    elif archivo.endswith(".xls") or archivo.endswith(".xlsx"):
         shutil.move(os.join(), os.path.join(ruta, "Excel", archivo))
 
 
