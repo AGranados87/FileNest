@@ -37,7 +37,7 @@ DESTINOS = {
 CARPETA_OTROS = "Otros"
 EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in exts}
 
-# Subcarpetas por fecha para ciertas categorías (formato strftime)
+# Subcarpetas por fecha para ciertas categorías
 DATE_SUBFOLDERS = {
     "Excel": "%Y/%m",
     "Documentos Word": "%Y/%m",
