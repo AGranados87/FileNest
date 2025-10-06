@@ -40,7 +40,7 @@ EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in e
 # Subcarpetas por fecha para ciertas categorías (formato strftime)
 DATE_SUBFOLDERS = {
     "Excel": "%Y/%m",
-    "Texto": "%Y/%m",
+    "Documentos Word": "%Y/%m",
 }
 
 # Utilidades
@@ -79,10 +79,6 @@ def listar_archivos(base: Path, recursivo: bool):
         yield p
 
 def _directorio_destino(base: Path, p: Path, carpeta: str) -> Path:
-    """
-    Devuelve el directorio final destino para el archivo p,
-    aplicando subcarpetas de fecha si corresponden.
-    """
     dest = base / carpeta
     if carpeta in DATE_SUBFOLDERS:
         # Usamos la fecha de modificación del archivo
