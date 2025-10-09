@@ -1,4 +1,3 @@
-# GUI con popup de bienvenida
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, font as tkfont
 from pathlib import Path
@@ -8,6 +7,7 @@ import threading
 import json
 import os
 from datetime import datetime
+import locale  # para nombre de mes en español
 
 # Config persistente (APPDATA)
 APP_DIR = Path(os.getenv('APPDATA', Path.home())) / "OrganizadorArchivos"
@@ -37,11 +37,30 @@ DESTINOS = {
 CARPETA_OTROS = "Otros"
 EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in exts}
 
-# Subcarpetas por fecha para ciertas categorías
+# Subcarpetas por fecha para ciertas categorías (lista de carpetas con fecha)
 DATE_SUBFOLDERS = {
     "Excel": "%Y/%m",
     "Documentos Word": "%Y/%m",
+    "Texto": "%Y/%m",  # <-- añadido
 }
+
+# === Helper para nombre de mes en español, con fallback confiable ===
+def mes_nombre_es(dt: datetime) -> str:
+    # Intenta varias locales comunes en Windows/Linux
+    for loc in ("es_ES.UTF-8", "es_ES", "Spanish_Spain.1252", "Spanish_Spain"):
+        try:
+            locale.setlocale(locale.LC_TIME, loc)
+            nombre = dt.strftime("%B")
+            if nombre:
+                return nombre.capitalize()
+        except Exception:
+            pass
+    # Fallback manual si no hay locale española
+    nombres = [
+        "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+        "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
+    ]
+    return nombres[dt.month - 1]
 
 # Utilidades
 def ruta_unica(dest: Path) -> Path:
@@ -55,7 +74,6 @@ def ruta_unica(dest: Path) -> Path:
         i += 1
 
 def _esta_dentro_de_destino(base: Path, p: Path) -> bool:
-
     try:
         rel = p.relative_to(base)
     except Exception:
@@ -81,10 +99,9 @@ def listar_archivos(base: Path, recursivo: bool):
 def _directorio_destino(base: Path, p: Path, carpeta: str) -> Path:
     dest = base / carpeta
     if carpeta in DATE_SUBFOLDERS:
-        # Usamos la fecha de modificación del archivo
+        # Usamos la fecha de modificación del archivo → Año / NombreMes
         dt = datetime.fromtimestamp(p.stat().st_mtime)
-        sub = dt.strftime(DATE_SUBFOLDERS[carpeta])
-        dest = dest / Path(*sub.split("/"))
+        dest = dest / dt.strftime("%Y") / mes_nombre_es(dt)
     return dest
 
 def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
@@ -287,7 +304,8 @@ class OrganizadorGUI:
             "• Mueve tus archivos a la carpeta según su extensión.\n"
             "• Evita tocar lo que ya esté dentro de esas carpetas.\n"
             "• Si el nombre existe, renombra a (1), (2), … para evitar colisiones.\n"
-            "• En 'Excel' y 'Texto' además organiza en subcarpetas por fecha (AAAA/MM) según la fecha de modificación.\n\n"
+            "• En 'Excel', 'Documentos Word' y 'Texto' además organiza en subcarpetas por fecha (AAAA/NombreMes) "
+            "según la fecha de modificación.\n\n"
             "Opciones:\n"
             "• Recursivo: incluye subcarpetas.\n"
             "• Simular: no mueve nada, solo muestra el plan.\n\n"
