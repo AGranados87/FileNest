@@ -6,10 +6,33 @@ from collections import defaultdict
 import threading
 import json
 import os
+import sys
 from datetime import datetime
 import locale  # para nombre de mes en español
+import base64
+from io import BytesIO
 
-# Config persistente (APPDATA)
+def _find_project_root_with_images(start: Path) -> Path:
+    for d in [start, *start.parents]:
+        if (d / "images").exists() or (d / "Images").exists():
+            return d
+    return start
+
+def resource_path(*parts) -> Path:
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass).joinpath(*parts)
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent.joinpath(*parts)
+
+    here = Path(__file__).resolve().parent
+    root = _find_project_root_with_images(here)
+    return root.joinpath(*parts)
+
+LOGO_B64 = ""  #fallback sin archivo
+
 APP_DIR = Path(os.getenv('APPDATA', Path.home())) / "OrganizadorArchivos"
 CONFIG_PATH = APP_DIR / "config.json"
 
@@ -25,7 +48,7 @@ def save_config(cfg: dict):
     APP_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
-# Config: carpetas y extensiones
+#  Config: carpetas y extensiones
 DESTINOS = {
     "Imágenes": {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg", ".heic"},
     "PDFs": {".pdf"},
@@ -41,10 +64,9 @@ EXT_A_CARPETA = {ext: carpeta for carpeta, exts in DESTINOS.items() for ext in e
 DATE_SUBFOLDERS = {
     "Excel": "%Y/%m",
     "Documentos Word": "%Y/%m",
-    "Texto": "%Y/%m",  # <-- añadido
+    "Texto": "%Y/%m",  # usamos AÑO/NombreMes vía mes_nombre_es()
 }
 
-# === Helper para nombre de mes en español, con fallback confiable ===
 def mes_nombre_es(dt: datetime) -> str:
     # Intenta varias locales comunes en Windows/Linux
     for loc in ("es_ES.UTF-8", "es_ES", "Spanish_Spain.1252", "Spanish_Spain"):
@@ -62,7 +84,7 @@ def mes_nombre_es(dt: datetime) -> str:
     ]
     return nombres[dt.month - 1]
 
-# Utilidades
+#  Utilidades
 def ruta_unica(dest: Path) -> Path:
     if not dest.exists():
         return dest
@@ -109,7 +131,6 @@ def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
     if not ruta.is_dir():
         raise ValueError(f"Ruta no válida: {ruta}")
 
-    # Crear carpetas destino top-level
     for carpeta in list(DESTINOS.keys()) + [CARPETA_OTROS]:
         (ruta / carpeta).mkdir(exist_ok=True)
 
@@ -124,7 +145,6 @@ def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
         ext = p.suffix.casefold()
         carpeta = EXT_A_CARPETA.get(ext, CARPETA_OTROS)
 
-        # Directorio final (incluye subcarpetas por fecha si procede)
         destino_dir = _directorio_destino(ruta, p, carpeta)
         destino_dir.mkdir(parents=True, exist_ok=True)
 
@@ -148,11 +168,11 @@ def organizar(ruta: Path, recursivo: bool, dry_run: bool, on_log, on_progress):
 
     return movidos, errores
 
-# GUI
+#  GUI
 class OrganizadorGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Organizador de archivos por tipo")
+        self.root.title("Organizador de archivos por tipo — FileNest")
         self.root.minsize(900, 560)
         self.root.geometry("1000x650")
 
@@ -269,6 +289,39 @@ class OrganizadorGUI:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    # ==========
+    #  Imágenes (helpers)
+    # ==========
+    def _load_logo_from_file(self, path: Path, size=(40, 40)):
+        """Carga logo desde archivo; intenta PIL para reescalar y cae a tk.PhotoImage si falta PIL."""
+        try:
+            from PIL import Image, ImageTk
+            im = Image.open(path).convert("RGBA").resize(size, Image.LANCZOS)
+            return ImageTk.PhotoImage(im)
+        except Exception:
+            try:
+                # Fallback sin reescalar
+                return tk.PhotoImage(file=str(path))
+            except Exception:
+                return None
+
+    def _load_logo_embedded(self, b64_str: str, size=(40, 40)):
+        if not b64_str:
+            return None
+        # Intento con PIL
+        try:
+            from PIL import Image, ImageTk
+            data = base64.b64decode(b64_str)
+            im = Image.open(BytesIO(data)).convert("RGBA")
+            if size:
+                im = im.resize(size, Image.LANCZOS)
+            return ImageTk.PhotoImage(im)
+        except Exception:
+            try:
+                return tk.PhotoImage(data=b64_str)
+            except Exception:
+                return None
+
     # helpers de centrado
     def _center_child(self, win: tk.Toplevel):
         try:
@@ -284,7 +337,6 @@ class OrganizadorGUI:
 
     # Bienvenida / Ayuda
     def _maybe_show_welcome(self):
-        # Muéstralo solo si no se ha marcado "no volver a mostrar"
         if not self.config.get("suppress_welcome_v2", False):
             self._show_welcome_modal()
 
@@ -295,11 +347,25 @@ class OrganizadorGUI:
         win.grab_set()  # modal
         win.resizable(False, False)
 
-        frm = ttk.Frame(win, padding=18)
-        frm.pack(fill="both", expand=True)
+        outer = ttk.Frame(win, padding=18)
+        outer.pack(fill="both", expand=True)
+
+        content = ttk.Frame(outer)
+        content.pack(fill="both", expand=True)
+        content.columnconfigure(0, weight=0)
+        content.columnconfigure(1, weight=1)
+
+        logo_path = resource_path("images", "FileNest.png")
+        self.logo_help = None
+        if logo_path.exists():
+            self.logo_help = self._load_logo_from_file(logo_path, (150, 150))
+        elif LOGO_B64:
+            self.logo_help = self._load_logo_embedded(LOGO_B64, (64, 64))
+        if self.logo_help:
+            ttk.Label(content, image=self.logo_help).grid(row=0, column=0, padx=(0, 14), pady=(0, 6), sticky="n")
 
         texto = (
-            "¿Qué hace esta app?\n"
+            "¿Qué hace FileNest?\n"
             "• Crea carpetas: Imágenes, PDFs, Vídeos, Documentos Word, Excel, Texto y Otros.\n"
             "• Mueve tus archivos a la carpeta según su extensión.\n"
             "• Evita tocar lo que ya esté dentro de esas carpetas.\n"
@@ -311,17 +377,13 @@ class OrganizadorGUI:
             "• Simular: no mueve nada, solo muestra el plan.\n\n"
             "Consejo: prueba primero con Simular (por si acaso 😉)."
         )
-
-        ttk.Label(frm, text=texto, justify="left", wraplength=640).pack(anchor="w")
+        ttk.Label(content, text=texto, justify="left", wraplength=560).grid(row=0, column=1, sticky="w")
 
         self.no_mostrar_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            frm,
-            text="No volver a mostrar al iniciar",
-            variable=self.no_mostrar_var
-        ).pack(anchor="w", pady=(10, 0))
+        ttk.Checkbutton(outer, text="No volver a mostrar al iniciar", variable=self.no_mostrar_var)\
+            .pack(anchor="w", pady=(10, 0))
 
-        btns = ttk.Frame(frm)
+        btns = ttk.Frame(outer)
         btns.pack(fill="x", pady=(12, 0))
         ttk.Button(btns, text="Entendido", command=lambda: self._cerrar_bienvenida(win)).pack(side="right")
 
@@ -335,38 +397,66 @@ class OrganizadorGUI:
         win.destroy()
 
     def _acerca_de(self):
-        import tkinter as tk
-        from tkinter import ttk
         import webbrowser
 
         url = "https://ko-fi.com/alvarogr87"
 
+        logo_path = resource_path("images", "FileNest.png")
+
+        self.logo_about = None
+        if logo_path.exists():
+            self.logo_about = self._load_logo_from_file(logo_path, (150, 150))
+        elif LOGO_B64:
+            self.logo_about = self._load_logo_embedded(LOGO_B64, (40, 40))
+
+        # Ventana modal
         win = tk.Toplevel(self.root)
         win.title("Acerca de")
         win.transient(self.root)
         win.grab_set()  # modal
         win.resizable(False, False)
 
-        frm = ttk.Frame(win, padding=18)
-        frm.pack(fill="both", expand=True)
+        outer = ttk.Frame(win, padding=18)
+        outer.pack(fill="both", expand=True)
 
-        ttk.Label(frm, text="Organizador de archivos — versión básica",
+        # Layout en dos columnas: [logo] | [texto]
+        content = ttk.Frame(outer)
+        content.pack(fill="both", expand=True)
+        content.columnconfigure(0, weight=0)
+        content.columnconfigure(1, weight=1)
+
+        # Logo pequeño a la izquierda
+        if self.logo_about:
+            ttk.Label(content, image=self.logo_about).grid(
+                row=0, column=0, padx=(0, 12), pady=(2, 2), sticky="n"
+            )
+        else:
+            ttk.Label(content, text="").grid(row=0, column=0, padx=(0, 12), sticky="n")
+
+        # Texto a la derecha
+        right = ttk.Frame(content)
+        right.grid(row=0, column=1, sticky="nw")
+
+        ttk.Label(right, text="Organizador de archivos — versión básica",
                   font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        ttk.Label(frm, text="Desarrollado por Álvaro Granados Ruiz.").pack(anchor="w", pady=(4, 0))
-        ttk.Label(frm, text="Sin anuncios. No se venderá. Solo utilidad y cariño 😉",
+        ttk.Label(right, text="Desarrollado por Álvaro Granados Ruiz.")\
+            .pack(anchor="w", pady=(4, 0))
+        ttk.Label(right, text="Sin anuncios. No se venderá. Solo utilidad y cariño 😉",
                   wraplength=520, justify="left").pack(anchor="w", pady=(0, 8))
 
-        ttk.Separator(frm).pack(fill="x", pady=8)
+        ttk.Separator(outer).pack(fill="x", pady=8)
 
-        ttk.Label(frm, text="¿Te ha ahorrado tiempo? Puedes invitarme a un café:").pack(anchor="w")
+        ttk.Label(outer, text="¿Te ha ahorrado tiempo? Puedes invitarme a un café:")\
+            .pack(anchor="w")
 
-        link = ttk.Label(frm, text=url, foreground="blue", cursor="hand2")
+        link = ttk.Label(outer, text=url, foreground="blue", cursor="hand2")
         link.pack(anchor="w", pady=(2, 8))
         link.bind("<Button-1>", lambda e: webbrowser.open(url))
 
-        btns = ttk.Frame(frm)
+        btns = ttk.Frame(outer)
         btns.pack(fill="x")
-        ttk.Button(btns, text="☕ Invitar en Ko-fi", command=lambda: webbrowser.open(url)).pack(side="right")
+        ttk.Button(btns, text="☕ Invitar en Ko-fi",
+                   command=lambda: webbrowser.open(url)).pack(side="right")
         ttk.Button(btns, text="Cerrar", command=win.destroy).pack(side="right", padx=(0, 8))
 
         try:
@@ -378,6 +468,7 @@ class OrganizadorGUI:
             y = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 2
             win.geometry(f"+{x}+{y}")
 
+#  main
 if __name__ == "__main__":
     root = tk.Tk()
 
