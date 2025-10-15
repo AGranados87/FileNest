@@ -1,17 +1,23 @@
-Organizador de Archivos (Tkinter)
+File Organizer (FileNest)
 
-Pequeña app de escritorio para ordenar archivos por tipo dentro de una carpeta. Crea subcarpetas (Imágenes, PDFs, Vídeos, etc.), mueve por extensión, evita colisiones renombrando y muestra progreso + log. Incluye ayuda de bienvenida y Acerca de con enlace a Ko-fi.
+A small desktop app to automatically sort files by type within a chosen folder.
+It creates subfolders (Images, PDFs, Videos, etc.), moves files by extension, avoids name conflicts by renaming duplicates, and shows real-time progress and logs.
+Includes a welcome help screen and an About window with a Ko-fi link.
 
-Características
+Features
 
-Clasifica por extensión en subcarpetas (y Otros).
+Sorts files by extension into subfolders (and an “Others” category).
 
-Simulación (no mueve nada) y Recursivo (incluye subcarpetas).
+Simulation mode: previews actions without moving files.
 
-Progreso visual y registro en tiempo real.
+Recursive mode: includes subfolders.
 
-Evita tocar lo ya ordenado y resuelve nombres duplicados: archivo (1).ext.
+Real-time progress bar and activity log.
 
-Requisitos
+Skips already sorted files and handles duplicates safely: file (1).ext.
 
-Windows 10/11, Python 3.10+ (librería estándar).
+Requirements
+
+Windows 10/11
+
+Python 3.10+ (standard library only)
